@@ -5,6 +5,9 @@ secondaryBackgroundColor = "#FFFFFF"
 textColor = "#1C1917"
 font = "sans serif"
 
+[client]
+showErrorDetails = "full"
+
 [browser]
 gatherUsageStats = false
 

@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlparse
 import pandas as pd
 import requests
 
-from analysis import RAW_COLUMNS
+from volume import RAW_COLUMNS
 
 SHEET_ID = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
 PRIVATE_MESSAGE = (
