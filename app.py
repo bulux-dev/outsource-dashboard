@@ -10,6 +10,7 @@ from analysis import (
     KNOWN_STATUSES,
     STATUS_OPTIONS,
     apply_status,
+    agent_daily,
     breakdown_by,
     build_daily,
     build_monthly,
@@ -254,7 +255,6 @@ def render_monthly(filtered: pd.DataFrame, period_label: str) -> None:
     render_kpis(period_kpis(filtered), monthly)
     render_charts(monthly)
     render_table(monthly, period_label)
-    render_detail(filtered, "monthly-records")
 
 
 def render_daily(filtered: pd.DataFrame, period_label: str) -> None:
@@ -278,14 +278,6 @@ def render_daily(filtered: pd.DataFrame, period_label: str) -> None:
     st.subheader("Day detail")
     view = _period_view(daily, "day", "Day", day_label)
     render_count_table(view, "Day")
-    st.download_button(
-        "Download daily summary",
-        to_csv_bytes(view),
-        file_name="daily_volume.csv",
-        mime="text/csv",
-        key="daily-download",
-    )
-    render_detail(filtered, "daily-records")
 
 
 def render_agents(population: pd.DataFrame, end) -> None:
@@ -315,13 +307,75 @@ def render_agents(population: pd.DataFrame, end) -> None:
     chart.update_xaxes(title_text="Records", rangemode="tozero")
     st.plotly_chart(chart, width="stretch", config=PLOT_CONFIG)
     render_count_table(agents, "Agent")
-    st.download_button(
-        "Download agent summary",
-        to_csv_bytes(agents),
-        file_name="agents_month_to_date.csv",
-        mime="text/csv",
-        key="agents-download",
+    render_agent_daily(current, list(agents["Agent"]))
+
+
+def render_agent_daily(current: pd.DataFrame, names: list[str]) -> None:
+    st.subheader("Daily")
+    st.caption("Month to date for the agents you pick. Start with one so the page stays readable.")
+    if not names:
+        return
+    selected = st.multiselect(
+        "Agents in the daily view",
+        names,
+        default=names[:1],
+        key="agent-daily-filter",
     )
+    if not selected:
+        st.info("Select at least one agent.")
+        return
+
+    agent_key = current["agent"].fillna("").astype(str).str.strip().replace("", "(blank)")
+    scoped = current.loc[agent_key.isin(selected)].copy()
+    if scoped.empty:
+        st.info("No records for the selected agents.")
+        return
+
+    if len(selected) == 1:
+        daily = build_daily(scoped)
+        labels = [day_label(value) for value in daily["day"]]
+        bars = go.Figure()
+        for status in _status_columns(daily, "day"):
+            bars.add_trace(go.Bar(x=labels, y=daily[status], name=status, marker_color=color_for(status)))
+        style_figure(bars, height=420)
+        bars.update_layout(barmode="stack", margin=dict(l=8, r=8, t=28, b=72))
+        bars.update_yaxes(title_text="Records", rangemode="tozero")
+        st.plotly_chart(bars, width="stretch", config=PLOT_CONFIG)
+        render_count_table(_period_view(daily, "day", "Day", day_label), "Day")
+        return
+
+    by_day = agent_daily(scoped)
+    teams = team_for_agents(scoped)
+    by_day.insert(2, "Team", by_day["Agent"].map(teams).fillna(""))
+    wide = (
+        by_day.assign(day=pd.to_datetime(by_day["day"]))
+        .pivot_table(index="day", columns="Agent", values="Total", aggfunc="sum")
+        .reindex(columns=selected)
+        .fillna(0)
+        .sort_index()
+    )
+    labels = [day_label(day) for day in wide.index]
+    bars = go.Figure()
+    for index, agent in enumerate(selected):
+        bars.add_trace(
+            go.Bar(
+                x=labels,
+                y=wide[agent].astype(int),
+                name=agent,
+                marker_color=EXTRA_COLORS[index % len(EXTRA_COLORS)],
+            )
+        )
+    style_figure(bars, height=420)
+    bars.update_layout(barmode="group", margin=dict(l=8, r=8, t=28, b=72))
+    bars.update_yaxes(title_text="Records", rangemode="tozero")
+    st.plotly_chart(bars, width="stretch", config=PLOT_CONFIG)
+
+    view = by_day.copy()
+    view.insert(0, "Day", pd.to_datetime(view["day"]).map(day_label))
+    view = view.drop(columns=["day"])
+    front = [column for column in ["Day", "Agent", "Team", "Total", "Conversion"] if column in view.columns]
+    rest = [column for column in view.columns if column not in front]
+    render_count_table(view[front + rest], "Day")
 
 
 def render_teams(population: pd.DataFrame, end) -> None:
@@ -348,12 +402,6 @@ def render_teams(population: pd.DataFrame, end) -> None:
     view.insert(0, "Day", view["day"].map(day_label))
     view = view.drop(columns=["day"])
     render_count_table(view, "Day")
-    st.download_button(
-        "Download team summary",
-        to_csv_bytes(pd.concat([teams.assign(Grain="Month to date"), view.assign(Grain="Daily")], ignore_index=True)),
-        file_name="teams.csv",
-        mime="text/csv",
-    )
 
 
 def _current_month(population: pd.DataFrame, end) -> tuple[pd.DataFrame, str]:
@@ -531,39 +579,6 @@ def render_table(monthly: pd.DataFrame, year_label: str) -> None:
             column_config[status] = st.column_config.NumberColumn(status, format="localized")
     st.dataframe(view, column_config=column_config, hide_index=True, width="stretch")
 
-    export = view.copy()
-    export["Month ISO"] = monthly["month"].dt.strftime("%Y-%m").values
-    st.download_button(
-        "Download monthly summary",
-        to_csv_bytes(export),
-        file_name="monthly_volume.csv",
-        mime="text/csv",
-        key="monthly-download",
-    )
-
-
-def render_detail(filtered: pd.DataFrame, download_key: str) -> None:
-    detail = pd.DataFrame(
-        {
-            "ID": filtered["item_id"],
-            "Agent": filtered["agent"] if "agent" in filtered.columns else filtered["name"],
-            "Team": filtered["team"] if "team" in filtered.columns else filtered["group"],
-            "Date": filtered["event_date"].dt.strftime("%Y-%m-%d"),
-            "Original status": filtered.get("column_status", filtered["status_raw"]),
-            "Status": filtered["status"],
-            "Month": filtered["event_date"].map(month_label),
-        }
-    )
-    with st.expander("Records in this period"):
-        st.dataframe(detail.head(50), hide_index=True, width="stretch")
-        st.download_button(
-            "Download records",
-            to_csv_bytes(detail),
-            file_name="period_records.csv",
-            mime="text/csv",
-            key=download_key,
-        )
-
 
 def day_label(value) -> str:
     stamp = pd.Timestamp(value)
@@ -600,10 +615,6 @@ def format_percent(value: float | None) -> str:
     return f"{value * 100:.1f}%"
 
 
-def to_csv_bytes(frame: pd.DataFrame) -> bytes:
-    return frame.to_csv(index=False).encode("utf-8-sig")
-
-
 def read_secret(name: str) -> str:
     try:
         value = st.secrets[name]
@@ -624,6 +635,7 @@ def inject_css() -> None:
             padding: 0.7rem 0.9rem;
         }
         div[data-testid="stMetricValue"] { font-variant-numeric: tabular-nums; }
+        button[aria-label="Download as CSV"] { display: none !important; }
         [data-testid="stMetricLabel"],
         [data-testid="stMetricLabel"] * {
             white-space: normal !important;

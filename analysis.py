@@ -250,18 +250,27 @@ def team_for_agents(df: pd.DataFrame) -> pd.Series:
 
 def team_daily(df: pd.DataFrame) -> pd.DataFrame:
     """One row per day and team."""
-    base_columns = ["day", "Team", "Total", "Conversion", *KNOWN_STATUSES]
-    if df.empty or "team" not in df.columns or "event_date" not in df.columns:
+    return _entity_daily(df, "team", "Team")
+
+
+def agent_daily(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per day and agent."""
+    return _entity_daily(df, "agent", "Agent")
+
+
+def _entity_daily(df: pd.DataFrame, column: str, label: str) -> pd.DataFrame:
+    base_columns = ["day", label, "Total", "Conversion", *KNOWN_STATUSES]
+    if df.empty or column not in df.columns or "event_date" not in df.columns:
         return pd.DataFrame(columns=base_columns)
 
     work = df.dropna(subset=["event_date"]).copy()
     if work.empty:
         return pd.DataFrame(columns=base_columns)
     work["day"] = work["event_date"].dt.normalize()
-    work["team"] = work["team"].fillna("").astype(str).str.strip().replace("", "(blank)")
+    work[column] = work[column].fillna("").astype(str).str.strip().replace("", "(blank)")
     statuses = ordered_statuses(set(work["status"].dropna().astype(str)))
     counts = (
-        work.groupby(["day", "team", "status"], observed=False)
+        work.groupby(["day", column, "status"], observed=False)
         .size()
         .unstack(fill_value=0)
         .reindex(columns=statuses, fill_value=0)
@@ -272,9 +281,9 @@ def team_daily(df: pd.DataFrame) -> pd.DataFrame:
         None if int(total) == 0 else float(approved_count) / float(total)
         for approved_count, total in zip(approved, counts["Total"])
     ]
-    result = counts.reset_index().rename(columns={"team": "Team"})
-    result = result.sort_values(["day", "Team"])
-    return result[["day", "Team", "Total", "Conversion", *statuses]].reset_index(drop=True)
+    result = counts.reset_index().rename(columns={column: label})
+    result = result.sort_values(["day", label])
+    return result[["day", label, "Total", "Conversion", *statuses]].reset_index(drop=True)
 
 
 def _period_counts(work: pd.DataFrame, column: str, freq: str, base_columns: list[str]) -> pd.DataFrame:

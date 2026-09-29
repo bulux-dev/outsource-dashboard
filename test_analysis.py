@@ -6,6 +6,7 @@ import pandas as pd
 
 from analysis import (
     apply_status,
+    agent_daily,
     breakdown_by,
     build_daily,
     build_monthly,
@@ -103,6 +104,10 @@ def test_daily_agent_and_team_views() -> None:
     by_day = team_daily(current)
     assert list(by_day["Team"]) == ["Training", "Training", "Samurais"]
     assert int(by_day["Total"].sum()) == 3
+    by_agent = agent_daily(current)
+    assert list(by_agent["Agent"]) == ["Alex", "Alex", "Blair"]
+    assert int(by_agent.loc[by_agent["Agent"] == "Alex", "Total"].sum()) == 2
+    assert float(by_agent.loc[by_agent["Agent"] == "Blair", "Conversion"].iloc[0]) == 1.0
 
 
 def test_demo_adds_up() -> None:
