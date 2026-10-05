@@ -26,9 +26,10 @@ from volume import (
 )
 from sheets_client import SheetError, fetch_sheet, guess_column, named_columns, to_records
 
+# Query tab. The Raw tab (gid 1935943579) is not the dashboard source.
 DEFAULT_SHEET_URL = (
     "https://docs.google.com/spreadsheets/d/1HDfOvmyhDYpDqfro1ON1z4DHazmGWvgYtdmxp6TIgBs/"
-    "edit?gid=1935943579#gid=1935943579"
+    "edit?gid=526210959#gid=526210959"
 )
 TIMEZONE = "America/Los_Angeles"
 STATUS_COLORS = {
@@ -209,8 +210,8 @@ def apply_period_filters(df: pd.DataFrame, scope: str) -> tuple[pd.DataFrame, in
 
     team_column = "team" if "team" in df.columns else "group"
     agent_column = "agent" if "agent" in df.columns else "name"
-    scoped = df[df[team_column].astype(str).isin(selected_teams)] if selected_teams else df.iloc[0:0]
-    scoped = scoped[scoped[agent_column].astype(str).isin(selected_agents)] if selected_agents else scoped.iloc[0:0]
+    scoped = _filter_labels(df, team_column, selected_teams)
+    scoped = _filter_labels(scoped, agent_column, selected_agents)
     undated = int(scoped["event_date"].isna().sum()) if "event_date" in scoped.columns else 0
     dated = scoped.dropna(subset=["event_date"])
     years = [int(year) for year in sorted(dated["event_date"].dt.year.unique())]
@@ -244,7 +245,18 @@ def _labels(df: pd.DataFrame, primary: str, fallback: str) -> list[str]:
     column = primary if primary in df.columns else fallback
     if column not in df.columns:
         return []
-    return sorted({str(value).strip() for value in df[column].dropna().unique() if str(value).strip()})
+    text = df[column].fillna("").astype(str).str.strip()
+    labels = sorted({value for value in text.unique() if value})
+    if (text == "").any():
+        labels.append("(blank)")
+    return labels
+
+
+def _filter_labels(df: pd.DataFrame, column: str, selected: list[str]) -> pd.DataFrame:
+    if column not in df.columns or not selected:
+        return df.iloc[0:0]
+    text = df[column].fillna("").astype(str).str.strip().replace("", "(blank)")
+    return df[text.isin(selected)]
 
 
 def render_monthly(filtered: pd.DataFrame, period_label: str) -> None:

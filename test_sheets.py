@@ -4,15 +4,15 @@ from sheets_client import SheetError, export_url, guess_column, parse_sheet_url,
 
 SHEET = (
     "https://docs.google.com/spreadsheets/d/1HDfOvmyhDYpDqfro1ON1z4DHazmGWvgYtdmxp6TIgBs/"
-    "edit?gid=1935943579#gid=1935943579"
+    "edit?gid=526210959#gid=526210959"
 )
 
 
 def test_parse_sheet_url() -> None:
     sheet_id, gid = parse_sheet_url(SHEET)
     assert sheet_id == "1HDfOvmyhDYpDqfro1ON1z4DHazmGWvgYtdmxp6TIgBs"
-    assert gid == "1935943579"
-    assert export_url(sheet_id, gid).endswith("export?format=csv&gid=1935943579")
+    assert gid == "526210959"
+    assert export_url(sheet_id, gid).endswith("export?format=csv&gid=526210959")
 
 
 def test_parse_rejects_other_links() -> None:
