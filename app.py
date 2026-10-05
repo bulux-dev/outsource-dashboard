@@ -117,6 +117,8 @@ def load_sheet(timezone: str) -> None:
         agent_column=agent_column,
         team_column=team_column,
     )
+    has_team = records["team"].fillna("").astype(str).str.strip().ne("")
+    records = records.loc[has_team].reset_index(drop=True)
     source = localize_events(records, timezone)
     render_board(
         source,
